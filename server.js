@@ -40,7 +40,13 @@ async function saveData(filename, data) {
 }
 
 app.use(cors({ 
-    origin: ['http://localhost:3000', 'https://vibebeadswebsite.onrender.com', 'https://localhost:3000', 'https://vibebeads.net'],
+    origin: [
+        'http://localhost:3000', 
+        'https://localhost:3000', 
+        'https://vibebeadswebsite.onrender.com', 
+        'https://vibebeads.net',
+        'http://vibebeads.net'
+    ],
     credentials: true 
 }));
 
