@@ -1,0 +1,19 @@
+{
+  "name": "vibebeads-admin-backend",
+  "version": "1.0.0",
+  "description": "Minimal admin backend for Vibe Beads website",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "author": "Vibe Beads",
+  "license": "MIT"
+}
