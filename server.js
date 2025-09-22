@@ -6,7 +6,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Allowed admin IPs
-const ADMIN_IPS = ['192.168.1.100', '10.0.0.50', '203.0.113.45', '192.168.1.243', '104.179.159.180'];
+const ADMIN_IPS = ['192.168.1.100', '10.0.0.50', '203.0.113.45', '192.168.1.243', '104.179.159.180', '172.59.196.158'];
 
 // In-memory storage (will persist during app lifetime)
 let contentData = {};
@@ -185,4 +185,5 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
