@@ -1,25 +1,51 @@
-// server.js - Minimal Admin Backend for Vibe Beads
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs').promises;
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Allowed admin IPs
 const ADMIN_IPS = ['192.168.1.100', '10.0.0.50', '203.0.113.45', '192.168.1.243', '104.179.159.180', '172.59.196.158'];
 
-// In-memory storage (will persist during app lifetime)
-let contentData = {};
-let productData = {};
+const DATA_DIR = path.join(__dirname, 'data');
+const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
+const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
 
-// Middleware
+async function ensureDataDirectory() {
+    try {
+        await fs.access(DATA_DIR);
+    } catch {
+        await fs.mkdir(DATA_DIR, { recursive: true });
+    }
+}
+
+async function loadData(filename) {
+    try {
+        const data = await fs.readFile(filename, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            return {};
+        }
+        throw error;
+    }
+}
+
+async function saveData(filename, data) {
+    await ensureDataDirectory();
+    const tempFile = filename + '.tmp';
+    await fs.writeFile(tempFile, JSON.stringify(data, null, 2));
+    await fs.rename(tempFile, filename);
+}
+
 app.use(cors({ 
     origin: ['http://localhost:3000', 'https://vibebeadswebsite.onrender.com', 'https://localhost:3000', 'https://vibebeads.net'],
     credentials: true 
 }));
+
 app.use(express.json({ limit: '10mb' }));
 
-// Remove trailing slashes
 app.use((req, res, next) => {
     if (req.path.substr(-1) === '/' && req.path.length > 1) {
         const query = req.url.slice(req.path.length);
@@ -29,22 +55,20 @@ app.use((req, res, next) => {
     }
 });
 
-// Get client IP helper
 function getClientIP(req) {
-    return req.headers['x-forwarded-for']?.split(',')[0] || 
+    return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+           req.headers['x-real-ip'] ||
            req.connection.remoteAddress || 
            req.socket.remoteAddress ||
            req.ip;
 }
 
-// Admin verification middleware
 function verifyAdmin(req, res, next) {
     const clientIP = getClientIP(req);
     const isLocalhost = req.hostname === 'localhost' || 
                        clientIP?.includes('127.0.0.1') || 
-                       clientIP?.includes('::1');
-    
-    console.log(`Admin check - IP: ${clientIP}, Localhost: ${isLocalhost}`);
+                       clientIP?.includes('::1') ||
+                       clientIP === '::ffff:127.0.0.1';
     
     if (isLocalhost || ADMIN_IPS.includes(clientIP)) {
         next();
@@ -53,7 +77,6 @@ function verifyAdmin(req, res, next) {
     }
 }
 
-// Health check
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
@@ -62,7 +85,6 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Admin status check
 app.get('/api/admin/status', verifyAdmin, (req, res) => {
     res.json({ 
         authorized: true, 
@@ -71,119 +93,168 @@ app.get('/api/admin/status', verifyAdmin, (req, res) => {
     });
 });
 
-// Get all content
-app.get('/api/content', (req, res) => {
-    res.json(contentData);
-});
-
-// Save content (admin only)
-app.post('/api/content', verifyAdmin, (req, res) => {
-    const { page, changes, timestamp } = req.body;
-    
-    if (!page || !changes) {
-        return res.status(400).json({ error: 'Page and changes required' });
-    }
-    
-    // Store changes
-    contentData[page] = {
-        ...changes,
-        lastModified: timestamp || new Date().toISOString(),
-        modifiedBy: getClientIP(req)
-    };
-    
-    console.log(`Content saved for page: ${page} by IP: ${getClientIP(req)}`);
-    
-    res.json({ 
-        success: true, 
-        page,
-        timestamp: contentData[page].lastModified
-    });
-});
-
-// Get all products
-app.get('/api/products', (req, res) => {
-    res.json(productData);
-});
-
-// Save product (admin only)
-app.post('/api/products', verifyAdmin, (req, res) => {
-    const { productId, productData: data } = req.body;
-    
-    if (!productId || !data) {
-        return res.status(400).json({ error: 'Product ID and data required' });
-    }
-    
-    productData[productId] = {
-        ...data,
-        lastModified: new Date().toISOString(),
-        modifiedBy: getClientIP(req)
-    };
-    
-    res.json({ 
-        success: true, 
-        productId,
-        timestamp: productData[productId].lastModified
-    });
-});
-
-// Delete product (admin only)
-app.delete('/api/products/:id', verifyAdmin, (req, res) => {
-    const { id } = req.params;
-    
-    if (productData[id]) {
-        delete productData[id];
-        res.json({ success: true, deleted: id });
-    } else {
-        res.status(404).json({ error: 'Product not found' });
+app.get('/api/content', async (req, res) => {
+    try {
+        const contentData = await loadData(CONTENT_FILE);
+        res.json(contentData);
+    } catch (error) {
+        console.error('Error loading content:', error);
+        res.status(500).json({ error: 'Failed to load content' });
     }
 });
 
-// Reset content (admin only)
-app.post('/api/reset', verifyAdmin, (req, res) => {
-    const { type } = req.body;
-    
-    if (type === 'content') {
-        contentData = {};
-    } else if (type === 'products') {
-        productData = {};
-    } else if (type === 'all') {
-        contentData = {};
-        productData = {};
+app.post('/api/content', verifyAdmin, async (req, res) => {
+    try {
+        const { page, changes, timestamp } = req.body;
+        
+        if (!page || !changes) {
+            return res.status(400).json({ error: 'Page and changes required' });
+        }
+        
+        const contentData = await loadData(CONTENT_FILE);
+        
+        contentData[page] = {
+            ...changes,
+            lastModified: timestamp || new Date().toISOString(),
+            modifiedBy: getClientIP(req)
+        };
+        
+        await saveData(CONTENT_FILE, contentData);
+        
+        res.json({ 
+            success: true, 
+            page,
+            timestamp: contentData[page].lastModified
+        });
+    } catch (error) {
+        console.error('Error saving content:', error);
+        res.status(500).json({ error: 'Failed to save content' });
     }
-    
-    console.log(`Reset performed: ${type} by IP: ${getClientIP(req)}`);
-    
-    res.json({ success: true, reset: type });
 });
 
-// Get admin info
-app.get('/api/admin/info', verifyAdmin, (req, res) => {
-    res.json({
-        contentPages: Object.keys(contentData).length,
-        totalProducts: Object.keys(productData).length,
-        lastActivity: new Date().toISOString(),
-        serverUptime: process.uptime()
-    });
+app.get('/api/products', async (req, res) => {
+    try {
+        const productData = await loadData(PRODUCTS_FILE);
+        res.json(productData);
+    } catch (error) {
+        console.error('Error loading products:', error);
+        res.status(500).json({ error: 'Failed to load products' });
+    }
 });
 
-// Error handling
-app.use((err, req, res, next) => {
-    console.error('Server error:', err);
+app.post('/api/products', verifyAdmin, async (req, res) => {
+    try {
+        const { productId, productData: data } = req.body;
+        
+        if (!productId || !data) {
+            return res.status(400).json({ error: 'Product ID and data required' });
+        }
+        
+        const productData = await loadData(PRODUCTS_FILE);
+        
+        productData[productId] = {
+            ...data,
+            lastModified: new Date().toISOString(),
+            modifiedBy: getClientIP(req)
+        };
+        
+        await saveData(PRODUCTS_FILE, productData);
+        
+        res.json({ 
+            success: true, 
+            productId,
+            timestamp: productData[productId].lastModified
+        });
+    } catch (error) {
+        console.error('Error saving product:', error);
+        res.status(500).json({ error: 'Failed to save product' });
+    }
+});
+
+app.delete('/api/products/:id', verifyAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const productData = await loadData(PRODUCTS_FILE);
+        
+        if (productData[id]) {
+            delete productData[id];
+            await saveData(PRODUCTS_FILE, productData);
+            res.json({ success: true, deleted: id });
+        } else {
+            res.status(404).json({ error: 'Product not found' });
+        }
+    } catch (error) {
+        console.error('Error deleting product:', error);
+        res.status(500).json({ error: 'Failed to delete product' });
+    }
+});
+
+app.post('/api/reset', verifyAdmin, async (req, res) => {
+    try {
+        const { type } = req.body;
+        
+        if (type === 'content') {
+            await saveData(CONTENT_FILE, {});
+        } else if (type === 'products') {
+            await saveData(PRODUCTS_FILE, {});
+        } else if (type === 'all') {
+            await saveData(CONTENT_FILE, {});
+            await saveData(PRODUCTS_FILE, {});
+        } else {
+            return res.status(400).json({ error: 'Invalid reset type' });
+        }
+        
+        res.json({ success: true, reset: type });
+    } catch (error) {
+        console.error('Error resetting data:', error);
+        res.status(500).json({ error: 'Failed to reset data' });
+    }
+});
+
+app.get('/api/admin/info', verifyAdmin, async (req, res) => {
+    try {
+        const contentData = await loadData(CONTENT_FILE);
+        const productData = await loadData(PRODUCTS_FILE);
+        
+        res.json({
+            contentPages: Object.keys(contentData).length,
+            totalProducts: Object.keys(productData).length,
+            lastActivity: new Date().toISOString(),
+            serverUptime: process.uptime()
+        });
+    } catch (error) {
+        console.error('Error getting admin info:', error);
+        res.status(500).json({ error: 'Failed to get admin info' });
+    }
+});
+
+app.use((error, req, res, next) => {
+    console.error('Server error:', error);
     res.status(500).json({ error: 'Internal server error' });
 });
 
-// 404 handler
 app.use((req, res) => {
     res.status(404).json({ error: 'Endpoint not found' });
 });
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`✅ Vibe Beads Admin Server running on port ${PORT}`);
-    console.log(`🔐 Admin access allowed from IPs: ${ADMIN_IPS.join(', ')}`);
-    console.log(`🌐 API Base URL: ${process.env.NODE_ENV === 'production' ? 'https://adminbackend-4ils.onrender.com' : `http://localhost:${PORT}`}/api`);
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    process.exit(1);
+});
+
+ensureDataDirectory().then(() => {
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+        console.log(`Admin IPs: ${ADMIN_IPS.join(', ')}`);
+        console.log(`API URL: ${process.env.NODE_ENV === 'production' ? 'https://adminbackend-4ils.onrender.com' : `http://localhost:${PORT}`}/api`);
+    });
+}).catch(error => {
+    console.error('Failed to start server:', error);
+    process.exit(1);
 });
 
 module.exports = app;
-
-
