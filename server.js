@@ -14,7 +14,7 @@ let productData = {};
 
 // Middleware
 app.use(cors({ 
-    origin: ['http://localhost:3000', 'https://vibebeadswebsite.onrender.com', 'https://localhost:3000'],
+    origin: ['http://localhost:3000', 'https://vibebeadswebsite.onrender.com', 'https://localhost:3000', 'https://vibebeads.net'],
     credentials: true 
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -185,3 +185,4 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
