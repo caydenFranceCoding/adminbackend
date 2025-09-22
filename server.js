@@ -6,7 +6,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const ADMIN_IPS = ['192.168.1.100', '10.0.0.50', '203.0.113.45', '192.168.1.243', '104.179.159.180', '104.28.50.139', '172.59.196.158'];
+const ADMIN_IPS = ['192.168.1.100', '10.0.0.50', '203.0.113.45', '192.168.1.243', '104.179.159.180', '104.28.50.139', '172.59.196.158', '104.28.33.73'];
 
 const DATA_DIR = path.join(__dirname, 'data');
 const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
