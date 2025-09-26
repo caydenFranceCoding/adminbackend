@@ -99,6 +99,60 @@ app.get('/api/admin/status', verifyAdmin, (req, res) => {
     });
 });
 
+app.get('/api/timestamps', async (req, res) => {
+    try {
+        const contentData = await loadData(CONTENT_FILE);
+        const productData = await loadData(PRODUCTS_FILE);
+        
+        const contentTimestamps = Object.values(contentData)
+            .map(page => page.lastModified)
+            .filter(Boolean);
+        
+        const productTimestamps = Object.values(productData)
+            .map(product => product.lastModified)
+            .filter(Boolean);
+        
+        const lastContentUpdate = contentTimestamps.length > 0 
+            ? Math.max(...contentTimestamps.map(t => new Date(t).getTime()))
+            : 0;
+            
+        const lastProductUpdate = productTimestamps.length > 0
+            ? Math.max(...productTimestamps.map(t => new Date(t).getTime()))
+            : 0;
+        
+        res.json({
+            content: lastContentUpdate ? new Date(lastContentUpdate).toISOString() : null,
+            products: lastProductUpdate ? new Date(lastProductUpdate).toISOString() : null,
+            server: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('Error getting timestamps:', error);
+        res.status(500).json({ error: 'Failed to get timestamps' });
+    }
+});
+
+app.get('/api/products/list', async (req, res) => {
+    try {
+        const productData = await loadData(PRODUCTS_FILE);
+        
+        const publicProducts = Object.entries(productData).map(([id, product]) => ({
+            id,
+            name: product.name,
+            price: product.price,
+            description: product.description,
+            category: product.category,
+            emoji: product.emoji,
+            imageUrl: product.imageUrl,
+            inStock: product.inStock !== false // default to true
+        }));
+        
+        res.json(publicProducts);
+    } catch (error) {
+        console.error('Error loading products list:', error);
+        res.status(500).json({ error: 'Failed to load products' });
+    }
+});
+
 app.get('/api/content', async (req, res) => {
     try {
         const contentData = await loadData(CONTENT_FILE);
