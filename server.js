@@ -7,7 +7,6 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 const ADMIN_IPS = [
-'104.28.33.73', 
 '172.59.196.158', 
 '104.179.159.180', 
 '172.58.183.6', 
