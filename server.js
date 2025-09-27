@@ -6,7 +6,13 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const ADMIN_IPS = ['104.28.33.73', '172.59.196.158', '104.179.159.180', '172.58.183.6', '172.59.195.98']
+const ADMIN_IPS = [
+'104.28.33.73', 
+'172.59.196.158', 
+'104.179.159.180', 
+'172.58.183.6', 
+'172.59.195.98'
+]
 
 const DATA_DIR = path.join(__dirname, 'data');
 const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
@@ -76,13 +82,17 @@ function verifyAdmin(req, res, next) {
                        clientIP?.includes('::1') ||
                        clientIP === '::ffff:127.0.0.1';
     
+    console.log('Admin verification:', { clientIP, isLocalhost, hostname: req.hostname });
+    
     if (isLocalhost || ADMIN_IPS.includes(clientIP)) {
         next();
     } else {
+        console.log('Admin access denied for IP:', clientIP);
         res.status(403).json({ error: 'Access denied', ip: clientIP });
     }
 }
 
+// Health check
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
@@ -91,6 +101,7 @@ app.get('/api/health', (req, res) => {
     });
 });
 
+// Admin status check
 app.get('/api/admin/status', verifyAdmin, (req, res) => {
     res.json({ 
         authorized: true, 
@@ -99,6 +110,7 @@ app.get('/api/admin/status', verifyAdmin, (req, res) => {
     });
 });
 
+// Get timestamps for update checking
 app.get('/api/timestamps', async (req, res) => {
     try {
         const contentData = await loadData(CONTENT_FILE);
@@ -131,6 +143,7 @@ app.get('/api/timestamps', async (req, res) => {
     }
 });
 
+// Get public product list (for all users)
 app.get('/api/products/list', async (req, res) => {
     try {
         const productData = await loadData(PRODUCTS_FILE);
@@ -143,7 +156,11 @@ app.get('/api/products/list', async (req, res) => {
             category: product.category,
             emoji: product.emoji,
             imageUrl: product.imageUrl,
-            inStock: product.inStock !== false // default to true
+            inStock: product.inStock !== false,
+            featured: product.featured || false,
+            sizes: product.sizes || ['Standard'],
+            scents: product.scents || [],
+            colors: product.colors || []
         }));
         
         res.json(publicProducts);
@@ -153,6 +170,7 @@ app.get('/api/products/list', async (req, res) => {
     }
 });
 
+// Get content data
 app.get('/api/content', async (req, res) => {
     try {
         const contentData = await loadData(CONTENT_FILE);
@@ -163,6 +181,7 @@ app.get('/api/content', async (req, res) => {
     }
 });
 
+// Save content data (admin only)
 app.post('/api/content', verifyAdmin, async (req, res) => {
     try {
         const { page, changes, timestamp } = req.body;
@@ -192,7 +211,8 @@ app.post('/api/content', verifyAdmin, async (req, res) => {
     }
 });
 
-app.get('/api/products', async (req, res) => {
+// Get all products (admin only)
+app.get('/api/products', verifyAdmin, async (req, res) => {
     try {
         const productData = await loadData(PRODUCTS_FILE);
         res.json(productData);
@@ -202,6 +222,7 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
+// Add new product (admin only)
 app.post('/api/products', verifyAdmin, async (req, res) => {
     try {
         const { productId, productData: data } = req.body;
@@ -210,15 +231,29 @@ app.post('/api/products', verifyAdmin, async (req, res) => {
             return res.status(400).json({ error: 'Product ID and data required' });
         }
         
+        // Validate required fields
+        if (!data.name || !data.price) {
+            return res.status(400).json({ error: 'Product name and price are required' });
+        }
+        
         const productData = await loadData(PRODUCTS_FILE);
+        
+        // Check if product already exists
+        if (productData[productId]) {
+            return res.status(409).json({ error: 'Product already exists' });
+        }
         
         productData[productId] = {
             ...data,
+            id: productId,
             lastModified: new Date().toISOString(),
-            modifiedBy: getClientIP(req)
+            modifiedBy: getClientIP(req),
+            createdAt: data.createdAt || new Date().toISOString()
         };
         
         await saveData(PRODUCTS_FILE, productData);
+        
+        console.log('Product added:', productId);
         
         res.json({ 
             success: true, 
@@ -231,6 +266,50 @@ app.post('/api/products', verifyAdmin, async (req, res) => {
     }
 });
 
+// Update existing product (admin only) - NEW ENDPOINT
+app.put('/api/products/:id', verifyAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updatedData = req.body;
+        
+        if (!updatedData.name || !updatedData.price) {
+            return res.status(400).json({ error: 'Product name and price are required' });
+        }
+        
+        const productData = await loadData(PRODUCTS_FILE);
+        
+        if (!productData[id]) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+        
+        // Preserve original creation data
+        const originalProduct = productData[id];
+        
+        productData[id] = {
+            ...updatedData,
+            id: id,
+            lastModified: new Date().toISOString(),
+            modifiedBy: getClientIP(req),
+            createdAt: originalProduct.createdAt || new Date().toISOString(),
+            createdBy: originalProduct.createdBy || 'admin'
+        };
+        
+        await saveData(PRODUCTS_FILE, productData);
+        
+        console.log('Product updated:', id);
+        
+        res.json({ 
+            success: true, 
+            productId: id,
+            timestamp: productData[id].lastModified
+        });
+    } catch (error) {
+        console.error('Error updating product:', error);
+        res.status(500).json({ error: 'Failed to update product' });
+    }
+});
+
+// Delete product (admin only)
 app.delete('/api/products/:id', verifyAdmin, async (req, res) => {
     try {
         const { id } = req.params;
@@ -239,6 +318,7 @@ app.delete('/api/products/:id', verifyAdmin, async (req, res) => {
         if (productData[id]) {
             delete productData[id];
             await saveData(PRODUCTS_FILE, productData);
+            console.log('Product deleted:', id);
             res.json({ success: true, deleted: id });
         } else {
             res.status(404).json({ error: 'Product not found' });
@@ -249,6 +329,24 @@ app.delete('/api/products/:id', verifyAdmin, async (req, res) => {
     }
 });
 
+// Get single product by ID
+app.get('/api/products/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const productData = await loadData(PRODUCTS_FILE);
+        
+        if (productData[id]) {
+            res.json(productData[id]);
+        } else {
+            res.status(404).json({ error: 'Product not found' });
+        }
+    } catch (error) {
+        console.error('Error loading product:', error);
+        res.status(500).json({ error: 'Failed to load product' });
+    }
+});
+
+// Reset data (admin only)
 app.post('/api/reset', verifyAdmin, async (req, res) => {
     try {
         const { type } = req.body;
@@ -264,6 +362,7 @@ app.post('/api/reset', verifyAdmin, async (req, res) => {
             return res.status(400).json({ error: 'Invalid reset type' });
         }
         
+        console.log('Data reset:', type);
         res.json({ success: true, reset: type });
     } catch (error) {
         console.error('Error resetting data:', error);
@@ -271,6 +370,7 @@ app.post('/api/reset', verifyAdmin, async (req, res) => {
     }
 });
 
+// Get admin info (admin only)
 app.get('/api/admin/info', verifyAdmin, async (req, res) => {
     try {
         const contentData = await loadData(CONTENT_FILE);
@@ -280,7 +380,8 @@ app.get('/api/admin/info', verifyAdmin, async (req, res) => {
             contentPages: Object.keys(contentData).length,
             totalProducts: Object.keys(productData).length,
             lastActivity: new Date().toISOString(),
-            serverUptime: process.uptime()
+            serverUptime: process.uptime(),
+            adminIPs: ADMIN_IPS
         });
     } catch (error) {
         console.error('Error getting admin info:', error);
@@ -288,15 +389,18 @@ app.get('/api/admin/info', verifyAdmin, async (req, res) => {
     }
 });
 
+// Error handling middleware
 app.use((error, req, res, next) => {
     console.error('Server error:', error);
     res.status(500).json({ error: 'Internal server error' });
 });
 
+// 404 handler
 app.use((req, res) => {
     res.status(404).json({ error: 'Endpoint not found' });
 });
 
+// Process error handlers
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
@@ -306,11 +410,13 @@ process.on('uncaughtException', (error) => {
     process.exit(1);
 });
 
+// Start server
 ensureDataDirectory().then(() => {
     app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
         console.log(`Admin IPs: ${ADMIN_IPS.join(', ')}`);
         console.log(`API URL: ${process.env.NODE_ENV === 'production' ? 'https://adminbackend-4ils.onrender.com' : `http://localhost:${PORT}`}/api`);
+        console.log(`Data directory: ${DATA_DIR}`);
     });
 }).catch(error => {
     console.error('Failed to start server:', error);
