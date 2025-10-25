@@ -14,7 +14,8 @@ const ADMIN_IPS = [
     '192.168.12.160', 
     '192.168.12.230',
     '172.58.183.208',
-    '172.20.10.2'
+    '172.20.10.2',
+    '146.75.164.253' 
 ]
 
 const DATA_DIR = path.join(__dirname, 'data');
@@ -159,11 +160,9 @@ app.get('/api/products/list', async (req, res) => {
             category: product.category,
             emoji: product.emoji,
             imageUrl: product.imageUrl,
+            sizeOptions: product.sizeOptions || [],
             inStock: product.inStock !== false,
-            featured: product.featured || false,
-            sizes: product.sizes || ['Standard'],
-            scents: product.scents || [],
-            colors: product.colors || []
+            featured: product.featured || false
         }));
         
         res.json(publicProducts);
@@ -269,7 +268,7 @@ app.post('/api/products', verifyAdmin, async (req, res) => {
     }
 });
 
-// Update existing product (admin only) - NEW ENDPOINT
+// Update existing product (admin only)
 app.put('/api/products/:id', verifyAdmin, async (req, res) => {
     try {
         const { id } = req.params;
